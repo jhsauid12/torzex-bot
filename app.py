@@ -1,73 +1,68 @@
-import os
+from flask import Flask, render_template, request, redirect
 import discord
 from discord.ext import commands
-from flask import Flask, render_template, request, redirect, url_for
-import threading
-
-TOKEN = "MTM3NDA0ODM5OTk3NTc4MDQ2Mw.Gtk6bd.3eeWjXcKWdAGcmP9vhnhGRQkchXtNO62fgg5-M"
-GUILD_ID = 1373993594486259734  # без кавычек, число
+import asyncio
+import os
 
 intents = discord.Intents.default()
-intents.message_content = True
 intents.guilds = True
+intents.messages = True
+intents.message_content = True
+intents.guild_messages = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
-
+bot = commands.Bot(command_prefix='!', intents=intents)
 app = Flask(__name__)
-discord_client_ready = threading.Event()
+
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")  # Убедись, что переменная окружения DISCORD_BOT_TOKEN установлена
+guild_id = os.getenv("DISCORD_GUILD_ID")  # Установи ID сервера в переменной окружения
 
 channels_by_category = {}
 
 @bot.event
 async def on_ready():
     print(f"Бот запущен как {bot.user}")
-    guild = bot.get_guild(GUILD_ID)
-
-    if guild is None:
-        print("Сервер не найден.")
+    guild = bot.get_guild(int(guild_id))
+    if not guild:
+        print("Гильдия не найдена. Проверь правильность DISCORD_GUILD_ID.")
         return
+    for category in guild.categories:
+        channels_by_category[category.name] = [channel for channel in category.text_channels]
 
-    global channels_by_category
-    channels_by_category = {}
-
-    for channel in guild.text_channels:
-        category = channel.category.name if channel.category else "Без категории"
-        if category not in channels_by_category:
-            channels_by_category[category] = []
-        channels_by_category[category].append(channel)
-
-    discord_client_ready.set()
-
-@app.route("/", methods=["GET"])
+@app.route("/")
 def index():
-    if not discord_client_ready.is_set():
-        return "Бот не готов. Попробуй позже.", 503
-
     return render_template("index.html", channels=channels_by_category)
 
 @app.route("/send", methods=["POST"])
 def send():
-    channel_id = int(request.form.get("channel"))
-    message = request.form.get("message")
-    image_url = request.form.get("image_url")
+    channel_id = int(request.form["channel"])
+    message = request.form["message"]
+    image_url = request.form.get("image_url", "")
+    button_label = request.form.get("button_label", "")
+    button_url = request.form.get("button_url", "")
 
-    async def send_message():
+    async def send_discord_message():
         channel = bot.get_channel(channel_id)
-        if channel:
-            embed = discord.Embed(description=message, color=discord.Color.blue())
-            if image_url:
-                embed.set_image(url=image_url)
-            await channel.send(embed=embed)
-        else:
-            print("Канал не найден.")
+        if not channel:
+            print("Канал не найден")
+            return
 
-    bot.loop.create_task(send_message())
-    return redirect(url_for("index"))
+        embed = None
+        if image_url:
+            embed = discord.Embed()
+            embed.set_thumbnail(url=image_url)
 
-def run_flask():
-    app.run(host="0.0.0.0", port=5000)
+        view = None
+        if button_label and button_url:
+            view = discord.ui.View()
+            button = discord.ui.Button(label=button_label, url=button_url)
+            view.add_item(button)
+
+        await channel.send(content=message, embed=embed, view=view)
+
+    asyncio.run_coroutine_threadsafe(send_discord_message(), bot.loop)
+    return redirect("/")
 
 if __name__ == "__main__":
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.start()
-    bot.run(TOKEN)
+    loop = asyncio.get_event_loop()
+    loop.create_task(bot.start(TOKEN))
+    app.run(host="0.0.0.0", port=5000)
