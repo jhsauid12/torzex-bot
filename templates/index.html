@@ -1,44 +1,48 @@
-<!DOCTYPE html>
-<html lang="ru">
+﻿<!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Discord Web Sender</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Discord Message Sender</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
-        <h1 contenteditable="true" spellcheck="false" id="header-title">Отправка сообщения</h1>
-        <form action="/send" method="post">
+        <h1>Отправка сообщения в Discord</h1>
+        <form method="POST" action="/send">
             <div class="input-group">
-                <label for="channel">Выбери чат</label>
-                <select name="channel" id="channel" required>
+                <label for="channel">Канал</label>
+                <select name="channel" required>
                     {% for category, channels in channels.items() %}
                     <optgroup label="{{ category }}">
                         {% for channel in channels %}
-                        <option value="{{ channel.id }}">#{{ channel.name }}</option>
+                        <option value="{{ channel.id }}">{{ channel.name }}</option>
                         {% endfor %}
                     </optgroup>
                     {% endfor %}
                 </select>
             </div>
+
             <div class="input-group">
-                <label for="message">Текст сообщения</label>
-                <textarea name="message" id="message" placeholder="Введи сообщение..." required></textarea>
-                <small>Ты можешь использовать <code>**жирный**</code>, <code>__подчёркнутый__</code>, <code>~~зачёркнутый~~</code>, <code>`моноширинный`</code></small>
+                <label for="message">Сообщение</label>
+                <textarea name="message" required></textarea>
             </div>
+
             <div class="input-group">
-                <label for="image_url">Маленькое изображение (необязательно)</label>
-                <input type="url" name="image_url" id="image_url" placeholder="https://example.com/thumb.png">
+                <label for="image_url">URL изображения (опц.)</label>
+                <input type="url" name="image_url">
             </div>
+
             <div class="input-group">
-                <label for="button_label">Кнопка: Текст</label>
-                <input type="text" name="button_label" id="button_label" placeholder="Открыть сайт...">
+                <label for="button_label">Текст кнопки (опц.)</label>
+                <input type="text" name="button_label">
             </div>
+
             <div class="input-group">
-                <label for="button_url">Кнопка: URL</label>
-                <input type="url" name="button_url" id="button_url" placeholder="https://example.com">
+                <label for="button_url">URL кнопки (опц.)</label>
+                <input type="url" name="button_url">
             </div>
+
             <button type="submit" class="send-button">Отправить</button>
         </form>
     </div>
