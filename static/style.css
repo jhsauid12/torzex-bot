@@ -1,4 +1,4 @@
-/* Сброс стилей */
+﻿/* Сброс стилей */
 * {
     margin: 0;
     padding: 0;
@@ -50,7 +50,8 @@ label {
 
 select,
 textarea,
-input[type="url"] {
+input[type="url"],
+input[type="text"] {
     padding: 12px;
     border-radius: 8px;
     border: none;
@@ -67,7 +68,7 @@ textarea {
 
     select:focus,
     textarea:focus,
-    input[type="url"]:focus {
+    input:focus {
         outline: none;
         box-shadow: 0 0 0 2px #00c9ff;
     }
