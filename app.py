@@ -6,7 +6,7 @@ import asyncio
 import aiohttp
 from discord.ext import commands
 from discord import app_commands
-from flask import Flask
+from flask import Flask, request
 import threading
 import hmac
 import hashlib
@@ -25,13 +25,25 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 # Конфигурация
-CONFIG_FILE = "config.json"
+CONFIG_FILE = "data/config.json"
 
 def load_data():
     try:
+        os.makedirs("data", exist_ok=True)
+        if not os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, "w") as f:
+                json.dump({
+                    "reaction_roles": {},
+                    "auto_roles": [],
+                    "nsfw_channels": [],
+                    "notification_channels": {},
+                    "git_webhooks": {}
+                }, f)
+        
         with open(CONFIG_FILE, "r") as f:
             return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Error loading config: {e}")
         return {
             "reaction_roles": {},
             "auto_roles": [],
@@ -41,8 +53,11 @@ def load_data():
         }
 
 def save_data(data):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+    try:
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"Error saving config: {e}")
 
 bot.data = load_data()
 
@@ -51,71 +66,76 @@ bot.data = load_data()
 async def on_ready():
     print(f"Bot {bot.user} is ready!")
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="/help"))
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} commands")
+    except Exception as e:
+        print(f"Error syncing commands: {e}")
 
 # Help Command
-@bot.tree.command(name="help", description="Показать список всех команд")
+@bot.tree.command(name="help", description="Show all available commands")
 async def help_command(interaction: discord.Interaction):
-    embed = discord.Embed(title="📚 Список команд бота", color=0x00ff00)
+    embed = discord.Embed(title="📚 Bot Commands", color=0x00ff00)
     
     embed.add_field(
         name="🎭 Reaction Roles",
-        value="`/reaction_role` - Настроить выдачу ролей по реакциям",
+        value="`/reaction_role` - Set up role reactions",
         inline=False
     )
     
     embed.add_field(
-        name="🌤 Погода",
-        value="`/weather [город]` - Узнать текущую погоду",
+        name="🌤 Weather",
+        value="`/weather [city]` - Get current weather",
         inline=False
     )
     
     embed.add_field(
-        name="😂 Развлечения",
-        value="`/meme` - Случайный мем\n"
-              "`/coinflip` - Подбросить монетку\n"
-              "`/cat` - Случайный котик\n"
-              "`/dog` - Случайный пёсик",
+        name="😂 Fun",
+        value="`/meme` - Random meme\n"
+              "`/coinflip` - Flip a coin\n"
+              "`/cat` - Random cat\n"
+              "`/dog` - Random dog",
         inline=False
     )
     
     embed.add_field(
         name="🔞 NSFW (18+)",
-        value="`/nsfw_setup` - Включить NSFW в текущем канале\n"
-              "`/nsfw [категория]` - NSFW контент",
+        value="`/nsfw_setup` - Enable NSFW in this channel\n"
+              "`/nsfw [category]` - NSFW content",
         inline=False
     )
     
     embed.add_field(
-        name="👥 Авто-роли",
-        value="`/autorole_add` - Добавить авто-роль\n"
-              "`/autorole_remove` - Удалить авто-роль",
+        name="👥 Auto Roles",
+        value="`/autorole_add` - Add auto role\n"
+              "`/autorole_remove` - Remove auto role",
         inline=False
     )
     
     embed.add_field(
-        name="🔔 Уведомления",
-        value="`/git_setup` - Настроить уведомления Git\n"
-              "`/git_webhook` - Создать вебхук для репозитория",
+        name="🔔 Notifications",
+        value="`/git_setup` - Setup Git notifications\n"
+              "`/git_webhook` - Create repo webhook",
         inline=False
     )
     
     await interaction.response.send_message(embed=embed)
 
-# Погода
-@bot.tree.command(name="weather", description="Узнать погоду в указанном городе")
-@app_commands.describe(city="Название города")
+# Weather Command
+@bot.tree.command(name="weather", description="Get weather for a city")
+@app_commands.describe(city="City name")
 async def weather(interaction: discord.Interaction, city: str):
     await interaction.response.defer()
     
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&language=ru"
+                f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&language=en"
             ) as resp:
                 geo_data = await resp.json()
                 
             if not geo_data.get("results"):
-                return await interaction.followup.send(f"❌ Город не найден: {city}")
+                return await interaction.followup.send(f"❌ City not found: {city}")
             
             location = geo_data["results"][0]
             lat, lon = location["latitude"], location["longitude"]
@@ -131,34 +151,34 @@ async def weather(interaction: discord.Interaction, city: str):
         daily = weather_data["daily"]
         
         weather_codes = {
-            0: "Ясно ☀️", 1: "Преимущественно ясно 🌤", 2: "Переменная облачность ⛅",
-            3: "Пасмурно ☁️", 45: "Туман 🌫", 48: "Иней 🌫",
-            51: "Морось 🌧", 53: "Умеренная морось 🌧", 55: "Сильная морось 🌧",
-            61: "Небольшой дождь 🌧", 63: "Умеренный дождь 🌧", 65: "Сильный дождь 🌧",
-            71: "Небольшой снег ❄️", 73: "Умеренный снег ❄️", 75: "Сильный снег ❄️",
-            80: "Ливень 🌧", 81: "Сильный ливень 🌧", 82: "Очень сильный ливень 🌧",
-            85: "Снегопад ❄️", 86: "Сильный снегопад ❄️", 95: "Гроза ⚡"
+            0: "Clear ☀️", 1: "Mainly clear 🌤", 2: "Partly cloudy ⛅",
+            3: "Overcast ☁️", 45: "Fog 🌫", 48: "Depositing rime fog 🌫",
+            51: "Light drizzle 🌧", 53: "Moderate drizzle 🌧", 55: "Dense drizzle 🌧",
+            61: "Slight rain 🌧", 63: "Moderate rain 🌧", 65: "Heavy rain 🌧",
+            71: "Slight snow ❄️", 73: "Moderate snow ❄️", 75: "Heavy snow ❄️",
+            80: "Light showers 🌧", 81: "Moderate showers 🌧", 82: "Violent showers 🌧",
+            85: "Slight snow showers ❄️", 86: "Heavy snow showers ❄️", 95: "Thunderstorm ⚡"
         }
         
         embed = discord.Embed(
-            title=f"🌤 Погода в {location['name']}, {location.get('admin1', '')}",
+            title=f"🌤 Weather in {location['name']}, {location.get('admin1', '')}",
             color=0x00ffff
         )
-        embed.add_field(name="🌡️ Температура", value=f"{current['temperature']}°C", inline=True)
-        embed.add_field(name="💨 Ветер", value=f"{current['windspeed']} м/с", inline=True)
-        embed.add_field(name="☁️ Состояние", value=weather_codes.get(current['weathercode'], "Неизвестно"), inline=True)
-        embed.add_field(name="⬆️ Максимум", value=f"{daily['temperature_2m_max'][0]}°C", inline=True)
-        embed.add_field(name="⬇️ Минимум", value=f"{daily['temperature_2m_min'][0]}°C", inline=True)
+        embed.add_field(name="🌡️ Temperature", value=f"{current['temperature']}°C", inline=True)
+        embed.add_field(name="💨 Wind", value=f"{current['windspeed']} m/s", inline=True)
+        embed.add_field(name="☁️ Condition", value=weather_codes.get(current['weathercode'], "Unknown"), inline=True)
+        embed.add_field(name="⬆️ High", value=f"{daily['temperature_2m_max'][0]}°C", inline=True)
+        embed.add_field(name="⬇️ Low", value=f"{daily['temperature_2m_min'][0]}°C", inline=True)
         
         await interaction.followup.send(embed=embed)
     except Exception as e:
-        await interaction.followup.send(f"❌ Ошибка: {str(e)}")
+        await interaction.followup.send(f"❌ Error: {str(e)}")
 
 # Reaction Roles
-class RoleModal(discord.ui.Modal, title="Настройка реакционной роли"):
-    message_id = discord.ui.TextInput(label="ID сообщения")
-    emoji = discord.ui.TextInput(label="Эмодзи")
-    role = discord.ui.TextInput(label="ID роли")
+class RoleModal(discord.ui.Modal, title="Reaction Role Setup"):
+    message_id = discord.ui.TextInput(label="Message ID")
+    emoji = discord.ui.TextInput(label="Emoji")
+    role = discord.ui.TextInput(label="Role ID")
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
@@ -168,21 +188,21 @@ class RoleModal(discord.ui.Modal, title="Настройка реакционно
             save_data(bot.data)
             
             await interaction.response.send_message(
-                f"✅ Реакционная роль настроена!\n"
-                f"Сообщение: {self.message_id.value}\n"
-                f"Эмодзи: {self.emoji.value}\n"
-                f"Роль: <@&{self.role.value}>",
+                f"✅ Reaction role setup complete!\n"
+                f"Message: {self.message_id.value}\n"
+                f"Emoji: {self.emoji.value}\n"
+                f"Role: <@&{self.role.value}>",
                 ephemeral=True
             )
         except Exception as e:
-            await interaction.response.send_message(f"❌ Ошибка: {e}", ephemeral=True)
+            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
 
-@bot.tree.command(name="reaction_role", description="Настроить выдачу ролей по реакциям")
+@bot.tree.command(name="reaction_role", description="Setup reaction roles")
 @app_commands.default_permissions(administrator=True)
 async def reaction_role(interaction: discord.Interaction):
     await interaction.response.send_modal(RoleModal())
 
-# Обработка реакций
+# Reaction Handling
 @bot.event
 async def on_raw_reaction_add(payload):
     if payload.user_id == bot.user.id:
@@ -206,9 +226,9 @@ async def on_raw_reaction_remove(payload):
         if role and member:
             await member.remove_roles(role)
 
-# Развлекательные команды
-@bot.tree.command(name="meme", description="Получить случайный мем")
-@app_commands.describe(category="Выберите категорию мема")
+# Fun Commands
+@bot.tree.command(name="meme", description="Get a random meme")
+@app_commands.describe(category="Meme category")
 @app_commands.choices(category=[
     app_commands.Choice(name="Random", value="random"),
     app_commands.Choice(name="Funny", value="funny"),
@@ -228,13 +248,13 @@ async def meme(interaction: discord.Interaction, category: app_commands.Choice[s
         embed.set_footer(text=f"👍 {data['ups']} | r/{data['subreddit']}")
         await interaction.followup.send(embed=embed)
     except Exception as e:
-        await interaction.followup.send(f"❌ Ошибка: {e}")
+        await interaction.followup.send(f"❌ Error: {e}")
 
-@bot.tree.command(name="coinflip", description="Подбросить монетку")
+@bot.tree.command(name="coinflip", description="Flip a coin")
 async def coinflip(interaction: discord.Interaction):
-    await interaction.response.send_message(f"🎲 {random.choice(['Орёл', 'Решка'])}!")
+    await interaction.response.send_message(f"🎲 {random.choice(['Heads', 'Tails'])}!")
 
-@bot.tree.command(name="cat", description="Случайное фото котика")
+@bot.tree.command(name="cat", description="Get a random cat picture")
 async def cat(interaction: discord.Interaction):
     await interaction.response.defer()
     try:
@@ -243,9 +263,9 @@ async def cat(interaction: discord.Interaction):
                 data = await resp.json()
         await interaction.followup.send(data[0]["url"])
     except Exception as e:
-        await interaction.followup.send(f"❌ Ошибка: {e}")
+        await interaction.followup.send(f"❌ Error: {e}")
 
-@bot.tree.command(name="dog", description="Случайное фото собаки")
+@bot.tree.command(name="dog", description="Get a random dog picture")
 async def dog(interaction: discord.Interaction):
     await interaction.response.defer()
     try:
@@ -254,30 +274,30 @@ async def dog(interaction: discord.Interaction):
                 data = await resp.json()
         await interaction.followup.send(data["message"])
     except Exception as e:
-        await interaction.followup.send(f"❌ Ошибка: {e}")
+        await interaction.followup.send(f"❌ Error: {e}")
 
-# Авто-роли
-@bot.tree.command(name="autorole_add", description="Добавить роль для автоматической выдачи")
-@app_commands.describe(role="Роль для автоматической выдачи")
+# Auto Roles
+@bot.tree.command(name="autorole_add", description="Add an auto role")
+@app_commands.describe(role="Role to add")
 @app_commands.default_permissions(administrator=True)
 async def add_autorole(interaction: discord.Interaction, role: discord.Role):
     if role.id not in bot.data["auto_roles"]:
         bot.data["auto_roles"].append(role.id)
         save_data(bot.data)
-        await interaction.response.send_message(f"✅ Авто-роль добавлена: {role.mention}")
+        await interaction.response.send_message(f"✅ Auto role added: {role.mention}")
     else:
-        await interaction.response.send_message(f"ℹ Роль уже является авто-ролью: {role.mention}")
+        await interaction.response.send_message(f"ℹ Role is already an auto role: {role.mention}")
 
-@bot.tree.command(name="autorole_remove", description="Удалить роль из автоматической выдачи")
-@app_commands.describe(role="Роль для удаления")
+@bot.tree.command(name="autorole_remove", description="Remove an auto role")
+@app_commands.describe(role="Role to remove")
 @app_commands.default_permissions(administrator=True)
 async def remove_autorole(interaction: discord.Interaction, role: discord.Role):
     if role.id in bot.data["auto_roles"]:
         bot.data["auto_roles"].remove(role.id)
         save_data(bot.data)
-        await interaction.response.send_message(f"✅ Авто-роль удалена: {role.mention}")
+        await interaction.response.send_message(f"✅ Auto role removed: {role.mention}")
     else:
-        await interaction.response.send_message(f"ℹ Роль не является авто-ролью: {role.mention}")
+        await interaction.response.send_message(f"ℹ Role is not an auto role: {role.mention}")
 
 @bot.event
 async def on_member_join(member):
@@ -286,19 +306,19 @@ async def on_member_join(member):
         if role:
             await member.add_roles(role)
 
-# NSFW
-@bot.tree.command(name="nsfw_setup", description="Настроить текущий канал как NSFW")
+# NSFW Commands
+@bot.tree.command(name="nsfw_setup", description="Setup current channel as NSFW")
 @app_commands.default_permissions(administrator=True)
 async def setup_nsfw(interaction: discord.Interaction):
     if interaction.channel.id not in bot.data["nsfw_channels"]:
         bot.data["nsfw_channels"].append(interaction.channel.id)
         save_data(bot.data)
-        await interaction.response.send_message("✅ Канал настроен как NSFW")
+        await interaction.response.send_message("✅ Channel set as NSFW")
     else:
-        await interaction.response.send_message("ℹ Этот канал уже NSFW")
+        await interaction.response.send_message("ℹ This channel is already NSFW")
 
-@bot.tree.command(name="nsfw", description="NSFW контент (18+)")
-@app_commands.describe(category="Выберите категорию")
+@bot.tree.command(name="nsfw", description="NSFW content (18+)")
+@app_commands.describe(category="Content category")
 @app_commands.choices(category=[
     app_commands.Choice(name="Neko", value="neko"),
     app_commands.Choice(name="Hentai", value="hentai"),
@@ -306,7 +326,7 @@ async def setup_nsfw(interaction: discord.Interaction):
 ])
 async def nsfw_content(interaction: discord.Interaction, category: app_commands.Choice[str]):
     if interaction.channel.id not in bot.data["nsfw_channels"]:
-        return await interaction.response.send_message("❌ Это не NSFW канал!", ephemeral=True)
+        return await interaction.response.send_message("❌ This is not an NSFW channel!", ephemeral=True)
     
     await interaction.response.defer()
     try:
@@ -318,24 +338,24 @@ async def nsfw_content(interaction: discord.Interaction, category: app_commands.
         embed.set_image(url=data["url"])
         await interaction.followup.send(embed=embed)
     except Exception as e:
-        await interaction.followup.send(f"❌ Ошибка: {e}")
+        await interaction.followup.send(f"❌ Error: {e}")
 
-# Git уведомления
-@bot.tree.command(name="git_setup", description="Настроить канал для уведомлений Git")
-@app_commands.describe(channel="Канал для уведомлений")
+# Git Notifications
+@bot.tree.command(name="git_setup", description="Setup Git notifications channel")
+@app_commands.describe(channel="Notification channel")
 @app_commands.default_permissions(administrator=True)
 async def setup_git(interaction: discord.Interaction, channel: discord.TextChannel):
     bot.data["notification_channels"]["git"] = channel.id
     save_data(bot.data)
-    await interaction.response.send_message(f"✅ Канал для Git-уведомлений установлен: {channel.mention}")
+    await interaction.response.send_message(f"✅ Git notifications channel set to: {channel.mention}")
 
-@bot.tree.command(name="git_webhook", description="Создать вебхук для репозитория")
-@app_commands.describe(repo="Название репозитория (owner/repo)")
+@bot.tree.command(name="git_webhook", description="Create a webhook for repository")
+@app_commands.describe(repo="Repository name (owner/repo)")
 @app_commands.default_permissions(administrator=True)
 async def create_webhook(interaction: discord.Interaction, repo: str):
     if "git" not in bot.data["notification_channels"]:
         return await interaction.response.send_message(
-            "❌ Сначала настройте канал командой /git_setup",
+            "❌ First setup a channel with /git_setup",
             ephemeral=True
         )
     
@@ -355,7 +375,7 @@ async def create_webhook(interaction: discord.Interaction, repo: str):
         inline=False
     )
     embed.add_field(
-        name="Инструкция", 
+        name="Instructions", 
         value="1. Go to repository Settings\n"
               "2. Open Webhooks section\n"
               "3. Add new webhook with provided URL and Secret\n"
@@ -365,7 +385,7 @@ async def create_webhook(interaction: discord.Interaction, repo: str):
     
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
-# Обработчик вебхуков Git
+# Git Webhook Handler
 @app.route('/webhook/git', methods=['POST'])
 def handle_git_webhook():
     try:
@@ -438,20 +458,27 @@ def handle_git_webhook():
         print(f"Git webhook error: {e}")
         return "Error", 500
 
-# Запуск
+# Flask Routes
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+# Startup
 def run_flask():
     app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
 
 if __name__ == "__main__":
+    # Create necessary directories
     os.makedirs("data", exist_ok=True)
-    os.makedirs("templates", exist_ok=True)
     
+    # Start Flask in a separate thread
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
     
+    # Start the bot
     TOKEN = os.getenv("DISCORD_TOKEN")
     if not TOKEN:
-        print("❌ Discord token not found!")
+        print("❌ Discord token not found in environment variables!")
     else:
         bot.run(TOKEN)
