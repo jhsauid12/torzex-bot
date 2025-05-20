@@ -174,6 +174,15 @@ async def hentai(interaction: Interaction):
     res = requests.get("https://nekos.life/api/v2/img/hentai").json()
     await interaction.response.send_message(res["url"])
 
+# GitHub webhook команда
+@tree.command(name="git_webhook", description="Информация о GitHub webhook")
+@app_commands.checks.has_permissions(administrator=True)
+async def git_webhook(interaction: Interaction):
+    await interaction.response.send_message(
+        "ℹ️ Используйте команду `/setgitwebhook` для создания webhook",
+        ephemeral=True
+    )
+
 # GitHub webhook создание
 @tree.command(name="setgitwebhook", description="Создать GitHub webhook")
 @app_commands.checks.has_permissions(administrator=True)
@@ -191,6 +200,10 @@ async def set_git_webhook(interaction: Interaction, repo: str, secret: str):
 
 # Flask GitHub webhook обработчик
 app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Discord Bot is running!", 200
 
 @app.route("/webhook/<repo_name>", methods=["POST"])
 def github_webhook(repo_name):
@@ -230,11 +243,18 @@ async def send_git_message(channel_id, message):
     if channel:
         await channel.send(message)
 
+# Синхронизация команд при запуске
+@bot.event
+async def on_ready():
+    await tree.sync()
+    print(f"Бот {bot.user} готов к работе!")
+
 # Flask запуск
 def run_flask():
     app.run(host="0.0.0.0", port=8080)
 
 flask_thread = threading.Thread(target=run_flask)
+flask_thread.daemon = True
 flask_thread.start()
 
 # Запуск Discord-бота
