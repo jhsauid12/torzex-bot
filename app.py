@@ -12,8 +12,10 @@ import hmac
 import hashlib
 from datetime import datetime
 
-# Инициализация
+# Инициализация Flask
 app = Flask(__name__)
+
+# Настройка Discord бота
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
@@ -21,7 +23,6 @@ intents.reactions = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
-tree = app_commands.CommandTree(bot)
 
 # Конфигурация
 CONFIG_FILE = "config.json"
@@ -49,11 +50,10 @@ bot.data = load_data()
 @bot.event
 async def on_ready():
     print(f"Bot {bot.user} is ready!")
-    await tree.sync()
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="/help"))
 
 # Help Command
-@tree.command(name="help", description="Показать список всех команд")
+@bot.tree.command(name="help", description="Показать список всех команд")
 async def help_command(interaction: discord.Interaction):
     embed = discord.Embed(title="📚 Список команд бота", color=0x00ff00)
     
@@ -102,7 +102,7 @@ async def help_command(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 # Погода
-@tree.command(name="weather", description="Узнать погоду в указанном городе")
+@bot.tree.command(name="weather", description="Узнать погоду в указанном городе")
 @app_commands.describe(city="Название города")
 async def weather(interaction: discord.Interaction, city: str):
     await interaction.response.defer()
@@ -177,7 +177,7 @@ class RoleModal(discord.ui.Modal, title="Настройка реакционно
         except Exception as e:
             await interaction.response.send_message(f"❌ Ошибка: {e}", ephemeral=True)
 
-@tree.command(name="reaction_role", description="Настроить выдачу ролей по реакциям")
+@bot.tree.command(name="reaction_role", description="Настроить выдачу ролей по реакциям")
 @app_commands.default_permissions(administrator=True)
 async def reaction_role(interaction: discord.Interaction):
     await interaction.response.send_modal(RoleModal())
@@ -207,7 +207,7 @@ async def on_raw_reaction_remove(payload):
             await member.remove_roles(role)
 
 # Развлекательные команды
-@tree.command(name="meme", description="Получить случайный мем")
+@bot.tree.command(name="meme", description="Получить случайный мем")
 @app_commands.describe(category="Выберите категорию мема")
 @app_commands.choices(category=[
     app_commands.Choice(name="Random", value="random"),
@@ -230,11 +230,11 @@ async def meme(interaction: discord.Interaction, category: app_commands.Choice[s
     except Exception as e:
         await interaction.followup.send(f"❌ Ошибка: {e}")
 
-@tree.command(name="coinflip", description="Подбросить монетку")
+@bot.tree.command(name="coinflip", description="Подбросить монетку")
 async def coinflip(interaction: discord.Interaction):
     await interaction.response.send_message(f"🎲 {random.choice(['Орёл', 'Решка'])}!")
 
-@tree.command(name="cat", description="Случайное фото котика")
+@bot.tree.command(name="cat", description="Случайное фото котика")
 async def cat(interaction: discord.Interaction):
     await interaction.response.defer()
     try:
@@ -245,7 +245,7 @@ async def cat(interaction: discord.Interaction):
     except Exception as e:
         await interaction.followup.send(f"❌ Ошибка: {e}")
 
-@tree.command(name="dog", description="Случайное фото собаки")
+@bot.tree.command(name="dog", description="Случайное фото собаки")
 async def dog(interaction: discord.Interaction):
     await interaction.response.defer()
     try:
@@ -257,7 +257,7 @@ async def dog(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Ошибка: {e}")
 
 # Авто-роли
-@tree.command(name="autorole_add", description="Добавить роль для автоматической выдачи")
+@bot.tree.command(name="autorole_add", description="Добавить роль для автоматической выдачи")
 @app_commands.describe(role="Роль для автоматической выдачи")
 @app_commands.default_permissions(administrator=True)
 async def add_autorole(interaction: discord.Interaction, role: discord.Role):
@@ -268,7 +268,7 @@ async def add_autorole(interaction: discord.Interaction, role: discord.Role):
     else:
         await interaction.response.send_message(f"ℹ Роль уже является авто-ролью: {role.mention}")
 
-@tree.command(name="autorole_remove", description="Удалить роль из автоматической выдачи")
+@bot.tree.command(name="autorole_remove", description="Удалить роль из автоматической выдачи")
 @app_commands.describe(role="Роль для удаления")
 @app_commands.default_permissions(administrator=True)
 async def remove_autorole(interaction: discord.Interaction, role: discord.Role):
@@ -287,7 +287,7 @@ async def on_member_join(member):
             await member.add_roles(role)
 
 # NSFW
-@tree.command(name="nsfw_setup", description="Настроить текущий канал как NSFW")
+@bot.tree.command(name="nsfw_setup", description="Настроить текущий канал как NSFW")
 @app_commands.default_permissions(administrator=True)
 async def setup_nsfw(interaction: discord.Interaction):
     if interaction.channel.id not in bot.data["nsfw_channels"]:
@@ -297,7 +297,7 @@ async def setup_nsfw(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("ℹ Этот канал уже NSFW")
 
-@tree.command(name="nsfw", description="NSFW контент (18+)")
+@bot.tree.command(name="nsfw", description="NSFW контент (18+)")
 @app_commands.describe(category="Выберите категорию")
 @app_commands.choices(category=[
     app_commands.Choice(name="Neko", value="neko"),
@@ -321,7 +321,7 @@ async def nsfw_content(interaction: discord.Interaction, category: app_commands.
         await interaction.followup.send(f"❌ Ошибка: {e}")
 
 # Git уведомления
-@tree.command(name="git_setup", description="Настроить канал для уведомлений Git")
+@bot.tree.command(name="git_setup", description="Настроить канал для уведомлений Git")
 @app_commands.describe(channel="Канал для уведомлений")
 @app_commands.default_permissions(administrator=True)
 async def setup_git(interaction: discord.Interaction, channel: discord.TextChannel):
@@ -329,7 +329,7 @@ async def setup_git(interaction: discord.Interaction, channel: discord.TextChann
     save_data(bot.data)
     await interaction.response.send_message(f"✅ Канал для Git-уведомлений установлен: {channel.mention}")
 
-@tree.command(name="git_webhook", description="Создать вебхук для репозитория")
+@bot.tree.command(name="git_webhook", description="Создать вебхук для репозитория")
 @app_commands.describe(repo="Название репозитория (owner/repo)")
 @app_commands.default_permissions(administrator=True)
 async def create_webhook(interaction: discord.Interaction, repo: str):
